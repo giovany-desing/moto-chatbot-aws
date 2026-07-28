@@ -63,7 +63,7 @@ async def subir_documento(file: UploadFile = File(...)):
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest):
+def chat(request: ChatRequest)
     try:
         resultado = rag_service.answer(
             question=request.question,
