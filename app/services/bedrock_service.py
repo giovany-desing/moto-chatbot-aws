@@ -90,6 +90,20 @@ def generate(question: str, context: list[dict], memory: list[dict] | None = Non
     return result["output"]["message"]["content"][0]["text"]
 
 
+def generate_simple(prompt: str, max_tokens: int = 200) -> str:
+    """
+    Llamada simple a Nova Lite, sin RAG, sin memoria, sin herramientas —
+    para tareas de generación auxiliares (ej. Contextual Retrieval).
+    """
+    payload = {
+        "schemaVersion": "messages-v1",
+        "messages": [{"role": "user", "content": [{"text": prompt}]}],
+        "inferenceConfig": {"maxTokens": max_tokens, "temperature": 0.0, "topP": 0.9},
+    }
+    result = _invoke_with_retry(payload)
+    return result["output"]["message"]["content"][0]["text"]
+
+
 def generate_with_tools(question: str, context: list[dict], tools: list[dict], memory: list[dict] | None = None, system_prompt: str | None = None) -> dict:
     """
     Primera llamada al LLM con definición de herramientas MCP disponibles.

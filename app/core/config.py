@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     MEMORY_TTL_SECONDS: int = 1800
     MEMORY_MAX_MESSAGES: int = 6
 
+    # Contextual Retrieval
+    CONTEXTUAL_RETRIEVAL_ENABLED: bool = False
+    CONTEXT_MAX_DOC_CHARS: int = 6000
+
     @property
     def database_url(self) -> str:
         return (
