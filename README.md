@@ -218,24 +218,4 @@ Ver `.env.example` para la lista completa con valores por defecto.
 
 Ver `scripts/setup_pgvector.sql` para el DDL completo de referencia.
 
-## Roadmap / mejoras pendientes
 
-- [ ] Autenticación en los endpoints (actualmente sin protección)
-- [ ] Rate limiting
-- [ ] Tests automatizados (pytest, moto, httpx — ya incluidos en `requirements-dev.txt`, sin usar)
-- [ ] CI/CD
-- [ ] Migraciones versionadas con Alembic
-- [ ] Chunking semántico (actualmente por cantidad fija de caracteres, con solapamiento)
-- [ ] Caché semántico de respuestas (actualmente por hash exacto)
-- [ ] Observabilidad con AWS X-Ray y alarmas de CloudWatch
-- [ ] OCR para manuales escaneados sin capa de texto
-
-## Notas de seguridad
-
-- Los endpoints **no tienen autenticación actualmente** — no exponer esta API tal cual a producción sin agregarla primero.
-- Las queries a PostgreSQL usan siempre parámetros (`%s`), nunca concatenación de strings — sin riesgo de inyección SQL desde el input del usuario o del modelo.
-- El `system_prompt` del usuario no está delimitado ni saneado contra prompt injection — pendiente de mitigación.
-- Este proyecto fue desarrollado como consultoría independiente para un cliente real del sector automotriz. Los datos de catálogo, inventario y financiamiento incluidos en el repositorio son de ejemplo, no datos reales del cliente.
-EOF
-
-git add README.md && git commit -m "Agregar README con documentación técnica completa para desarrolladores" && git push
