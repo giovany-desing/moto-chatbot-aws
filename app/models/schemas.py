@@ -15,6 +15,7 @@ class SourceChunk(BaseModel):
     filename: str
     page: int
     relevance: float
+    text_preview: str | None = Field(default=None, description="Fragmento corto del chunk fuente, util para citar/evaluar")
 
 
 class ChatResponse(BaseModel):

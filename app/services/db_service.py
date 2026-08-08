@@ -32,13 +32,23 @@ CREATE TABLE IF NOT EXISTS chunks (
     filename  TEXT NOT NULL,
     page      INT NOT NULL,
     text      TEXT NOT NULL,
-    embedding vector({settings.EMBEDDING_DIMENSIONS}),
+    embedding vector(1024),
     created_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw_idx
 ON chunks USING hnsw (embedding vector_cosine_ops)
 WITH (m = 16, ef_construction = 64);
+
+-- Retrieval hibrido: columna generada automaticamente para busqueda
+-- de texto completo (componente "sparse" -- pesa por frecuencia de
+-- termino, favorece codigos/referencias/nombres propios que el
+-- embedding puede pasar por alto). Se recalcula sola si "text" cambia.
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS text_search tsvector
+    GENERATED ALWAYS AS (to_tsvector('spanish', text)) STORED;
+
+CREATE INDEX IF NOT EXISTS chunks_text_search_gin_idx
+ON chunks USING GIN (text_search);
 
 CREATE TABLE IF NOT EXISTS mecanico_perfil (
     id               SERIAL PRIMARY KEY,
@@ -102,7 +112,6 @@ CREATE TABLE IF NOT EXISTS vehiculos (
     proximo_servicio_km INT
 );
 
--- Tablas de atención al cliente / ventas (empleado digital comercial)
 CREATE TABLE IF NOT EXISTS catalogo_motos (
     id               SERIAL PRIMARY KEY,
     modelo           TEXT NOT NULL,

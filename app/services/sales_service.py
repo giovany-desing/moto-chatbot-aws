@@ -10,6 +10,8 @@ from app.services import cache_service, embedding_service, vector_service, bedro
 
 logger = get_logger(__name__)
 
+_PREVIEW_CHARS = 240
+
 _SALES_SYSTEM_PROMPT = (
     "Eres el asistente virtual de atención al cliente de una empresa de "
     "motocicletas. Hablas en español, de forma cercana, clara y profesional, "
@@ -27,6 +29,18 @@ _SALES_SYSTEM_PROMPT = (
 )
 
 
+def _fuentes(chunks: list[dict]) -> list[dict]:
+    return [
+        {
+            "filename": c["filename"],
+            "page": c["page"],
+            "relevance": c["relevance"],
+            "text_preview": c["text"][:_PREVIEW_CHARS],
+        }
+        for c in chunks
+    ]
+
+
 def answer_cliente(question: str, session_id: str | None = None) -> dict:
     from app.mcp.ventas_server import get_tools_schema, execute_tool
 
@@ -35,7 +49,7 @@ def answer_cliente(question: str, session_id: str | None = None) -> dict:
         return {**cached, "from_cache": True}
 
     query_embedding = embedding_service.embed_query(question)
-    chunks = vector_service.search(query_embedding)
+    chunks = vector_service.search_hybrid(query_embedding, question)
     memory = cache_service.get_memory(session_id or "")
     tools = get_tools_schema()
 
@@ -59,10 +73,7 @@ def answer_cliente(question: str, session_id: str | None = None) -> dict:
 
     result = {
         "answer": response["text"],
-        "sources": [
-            {"filename": c["filename"], "page": c["page"], "relevance": c["relevance"]}
-            for c in chunks
-        ],
+        "sources": _fuentes(chunks),
         "from_cache": False,
         "tools_used": [t["tool"] for t in tool_results],
     }

@@ -1,0 +1,17 @@
+[
+  {
+    "question": "¿Cada cuántos kilómetros se cambia el aceite de motor?",
+    "expected_pages": [23, 24],
+    "audiencia": "mecanico"
+  },
+  {
+    "question": "¿Cuál es la capacidad del cárter de aceite?",
+    "expected_pages": [24],
+    "audiencia": "mecanico"
+  },
+  {
+    "question": "Busco una moto económica para trabajar en domicilios",
+    "expected_pages": [],
+    "audiencia": "cliente"
+  }
+]

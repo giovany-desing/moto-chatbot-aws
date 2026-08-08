@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     CONTEXTUAL_RETRIEVAL_ENABLED: bool = False
     CONTEXT_MAX_DOC_CHARS: int = 6000
 
+    # Reranking
+    RERANKING_ENABLED: bool = True
+    RERANK_MODEL: str = "amazon.rerank-v1:0"
+
     @property
     def database_url(self) -> str:
         return (
