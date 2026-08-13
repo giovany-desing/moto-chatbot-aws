@@ -1,0 +1,75 @@
+name: Deploy a AWS
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write   # requerido para autenticacion OIDC (sin llaves de AWS guardadas en GitHub)
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO_API: moto-chatbot-dev-api
+  ECR_REPO_WORKER: moto-chatbot-dev-worker
+  LAMBDA_API: moto-chatbot-dev-api
+  LAMBDA_WORKER: moto-chatbot-dev-worker
+
+jobs:
+  # El deploy solo corre si el job de CI (validar) paso primero
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS (OIDC, sin llaves guardadas)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login a ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build y push de la imagen
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 --provenance=false --sbom=false \
+            -t $REGISTRY/$ECR_REPO_API:latest \
+            -t $REGISTRY/$ECR_REPO_API:$IMAGE_TAG .
+          docker push $REGISTRY/$ECR_REPO_API:latest
+          docker push $REGISTRY/$ECR_REPO_API:$IMAGE_TAG
+
+          docker tag $REGISTRY/$ECR_REPO_API:latest $REGISTRY/$ECR_REPO_WORKER:latest
+          docker push $REGISTRY/$ECR_REPO_WORKER:latest
+
+      - name: Actualizar Lambda API
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          aws lambda update-function-code \
+            --function-name $LAMBDA_API \
+            --image-uri $REGISTRY/$ECR_REPO_API:latest \
+            --region $AWS_REGION
+
+      - name: Actualizar Lambda Worker
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          aws lambda update-function-code \
+            --function-name $LAMBDA_WORKER \
+            --image-uri $REGISTRY/$ECR_REPO_WORKER:latest \
+            --region $AWS_REGION
+
+      - name: Esperar a que ambas Lambdas terminen de actualizar
+        run: |
+          aws lambda wait function-updated --function-name $LAMBDA_API --region $AWS_REGION
+          aws lambda wait function-updated --function-name $LAMBDA_WORKER --region $AWS_REGION

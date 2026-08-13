@@ -1,14 +1,15 @@
 """
 5 endpoints principales de la API:
-  GET  /health
-  GET  /documentos
-  POST /documentos
-  POST /chat
-  POST /chat-cliente
+  GET  /health           (publico, sin API Key -- monitoreo)
+  GET  /documentos        (requiere X-API-Key)
+  POST /documentos        (requiere X-API-Key)
+  POST /chat               (requiere X-API-Key)
+  POST /chat-cliente       (requiere X-API-Key)
 """
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 
 from app.core.logging import get_logger
+from app.api.security import verify_api_key
 from app.models.schemas import (
     ChatRequest,
     ChatResponse,
@@ -36,12 +37,12 @@ def health():
     return HealthResponse(status="ok")
 
 
-@router.get("/documentos", response_model=list[DocumentInfo])
+@router.get("/documentos", response_model=list[DocumentInfo], dependencies=[Depends(verify_api_key)])
 def listar_documentos():
     return vector_service.list_manuales()
 
 
-@router.post("/documentos", response_model=UploadResponse)
+@router.post("/documentos", response_model=UploadResponse, dependencies=[Depends(verify_api_key)])
 async def subir_documento(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
@@ -62,7 +63,7 @@ async def subir_documento(file: UploadFile = File(...)):
     )
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(verify_api_key)])
 def chat(request: ChatRequest):
     try:
         resultado = rag_service.answer(
@@ -76,7 +77,7 @@ def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail="Error procesando la consulta") from exc
 
 
-@router.post("/chat-cliente", response_model=ChatClienteResponse)
+@router.post("/chat-cliente", response_model=ChatClienteResponse, dependencies=[Depends(verify_api_key)])
 def chat_cliente(request: ChatClienteRequest):
     try:
         resultado = sales_service.answer_cliente(

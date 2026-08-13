@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "moto-chatbot"
     ENVIRONMENT: str = "dev"
 
+    # Seguridad
+    API_KEY: str
+
     # RDS PostgreSQL
     DB_HOST: str
     DB_PORT: int = 5432
