@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     RERANKING_ENABLED: bool = True
     RERANK_MODEL: str = "amazon.rerank-v1:0"
 
+    # LLM de chat (Groq) — Bedrock queda disponible para casos atípicos
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Embeddings: proveedor conmutable (local = BGE-M3, bedrock = Titan)
+    EMBEDDING_PROVIDER: str = "local"
+    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-m3"
+
     @property
     def database_url(self) -> str:
         return (
