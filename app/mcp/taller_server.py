@@ -9,16 +9,33 @@ logger = get_logger(__name__)
 
 
 def consultar_inventario(repuesto: str) -> dict:
-    """Consulta el stock de un repuesto en el inventario del taller."""
+    """
+    Consulta el stock de un repuesto en el inventario del taller.
+
+    Usa similitud por trigramas (pg_trgm) ademas de ILIKE, para tolerar
+    plural/singular y variaciones menores (ej. "pastillas de freno" SI
+    encuentra "Pastilla de freno delantera" -- con ILIKE puro no
+    coincidian). Tambien busca contra moto_compatible, para permitir
+    preguntar por el modelo de moto en vez del nombre exacto del repuesto.
+    """
     with db_cursor() as (conn, cur):
         cur.execute(
             """
-            SELECT nombre, referencia, stock, precio, ubicacion
+            SELECT nombre, referencia, stock, precio, ubicacion,
+                   GREATEST(
+                       similarity(nombre, %s),
+                       similarity(referencia, %s),
+                       COALESCE((SELECT MAX(similarity(m, %s)) FROM unnest(moto_compatible) AS m), 0)
+                   ) AS relevancia
             FROM inventario
-            WHERE nombre ILIKE %s OR referencia ILIKE %s
-            ORDER BY stock DESC
+            WHERE nombre ILIKE %s
+               OR referencia ILIKE %s
+               OR similarity(nombre, %s) > 0.25
+               OR similarity(referencia, %s) > 0.25
+               OR EXISTS (SELECT 1 FROM unnest(moto_compatible) AS m WHERE similarity(m, %s) > 0.25)
+            ORDER BY relevancia DESC, stock DESC
             """,
-            [f"%{repuesto}%", f"%{repuesto}%"],
+            [repuesto, repuesto, repuesto, f"%{repuesto}%", f"%{repuesto}%", repuesto, repuesto, repuesto],
         )
         rows = cur.fetchall()
 

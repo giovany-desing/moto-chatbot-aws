@@ -15,6 +15,7 @@ logger = get_logger(__name__)
 
 _SCHEMA_SQL = f"""
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE TABLE IF NOT EXISTS manuales (
     id         SERIAL PRIMARY KEY,
