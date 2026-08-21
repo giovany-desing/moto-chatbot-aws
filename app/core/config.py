@@ -57,9 +57,11 @@ class Settings(BaseSettings):
     CONTEXTUAL_RETRIEVAL_ENABLED: bool = False
     CONTEXT_MAX_DOC_CHARS: int = 6000
 
-    # Reranking
+    # Reranking: proveedor conmutable (local = BGE reranker, bedrock = casos atípicos)
     RERANKING_ENABLED: bool = True
+    RERANK_PROVIDER: str = "local"
     RERANK_MODEL: str = "amazon.rerank-v1:0"
+    LOCAL_RERANK_MODEL: str = "BAAI/bge-reranker-v2-m3"
 
     # LLM de chat: proveedor conmutable (groq = producción, bedrock = casos atípicos)
     LLM_PROVIDER: str = "groq"
