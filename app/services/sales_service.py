@@ -3,10 +3,11 @@ Orquestador del asistente de atención al cliente / ventas ("empleado
 digital" comercial). Mismo patrón que rag_service.answer_with_tools(),
 pero con un system prompt de tono comercial y las herramientas de
 ventas (app/mcp/ventas_server.py) en vez de las de taller.
+LLM vía llm_service (proveedor conmutable: groq/bedrock).
 """
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.services import cache_service, embedding_service, vector_service, bedrock_service
+from app.services import cache_service, embedding_service, vector_service, llm_service
 
 logger = get_logger(__name__)
 
@@ -53,29 +54,15 @@ def answer_cliente(question: str, session_id: str | None = None) -> dict:
     memory = cache_service.get_memory(session_id or "")
     tools = get_tools_schema()
 
-    response = bedrock_service.generate_with_tools_and_prompt(
-        question, chunks, tools, memory, system_prompt=_SALES_SYSTEM_PROMPT
+    response = llm_service.run_agentic(
+        question, chunks, tools, execute_tool, memory, system_prompt=_SALES_SYSTEM_PROMPT
     )
-
-    tool_results: list[dict] = []
-    max_iteraciones = 4
-    while response.get("tool_calls") and max_iteraciones > 0:
-        max_iteraciones -= 1
-        for tool_call in response["tool_calls"]:
-            nombre_tool = tool_call["name"]
-            logger.info(f"Ejecutando herramienta MCP de ventas: {nombre_tool}")
-            result = execute_tool(tool_call["name"], tool_call["parameters"])
-            tool_results.append({"tool": tool_call["name"], "result": result})
-
-        response = bedrock_service.generate_with_tool_results_and_prompt(
-            question, chunks, tool_results, memory, system_prompt=_SALES_SYSTEM_PROMPT
-        )
 
     result = {
         "answer": response["text"],
         "sources": _fuentes(chunks),
         "from_cache": False,
-        "tools_used": [t["tool"] for t in tool_results],
+        "tools_used": response["tools_used"],
     }
 
     cache_service.set(question, result, "cliente")

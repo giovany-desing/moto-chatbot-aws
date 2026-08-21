@@ -8,3 +8,4 @@ venv/
 .DS_Store
 .ruff_cache/
 .oncall/
+venv-py39-old/

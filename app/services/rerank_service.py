@@ -6,7 +6,8 @@ A diferencia de RRF (que solo mira POSICIONES en dos rankings, sin leer
 el contenido), el reranker lee la pregunta y cada candidato JUNTOS, en
 un solo pase, y les asigna un puntaje de relevancia real. Usa el Rerank
 API de Bedrock (bedrock-agent-runtime), un servicio DISTINTO al
-bedrock-runtime que ya usan embedding_service.py y bedrock_service.py.
+bedrock-runtime que puede usar embedding_service.py (si EMBEDDING_PROVIDER=bedrock)
+y llm_service.py (si LLM_PROVIDER=bedrock).
 """
 import boto3
 from botocore.exceptions import ClientError
