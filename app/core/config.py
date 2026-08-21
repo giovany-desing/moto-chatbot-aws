@@ -43,10 +43,11 @@ class Settings(BaseSettings):
     # SQS
     SQS_QUEUE_URL: str
 
-    # RAG
-    CHUNK_SIZE: int = 1000
-    CHUNK_OVERLAP: int = 200
-    CHUNK_MIN_SIZE: int = 100
+    # RAG -- chunking recursivo basado en TOKENS (no caracteres), via
+    # tiktoken cl100k_base como aproximacion estandar del tamano real
+    CHUNK_SIZE_TOKENS: int = 512
+    CHUNK_OVERLAP_TOKENS: int = 64
+    CHUNK_MIN_SIZE_TOKENS: int = 20
     TOP_K_RESULTS: int = 5
     CACHE_SIMILARITY_THRESHOLD: float = 0.92
     CACHE_TTL_SECONDS: int = 3600
