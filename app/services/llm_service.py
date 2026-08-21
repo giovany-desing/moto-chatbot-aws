@@ -111,6 +111,7 @@ def _groq_generate(question: str, context: list[dict], memory: list[dict], syste
         temperature=0.2,
         top_p=0.9,
         max_tokens=1024,
+        reasoning_effort=settings.GROQ_REASONING_EFFORT,
     )
     return response.choices[0].message.content
 
@@ -122,6 +123,7 @@ def _groq_generate_simple(prompt: str, max_tokens: int) -> str:
         temperature=0.0,
         top_p=0.9,
         max_tokens=max_tokens,
+        reasoning_effort=settings.GROQ_REASONING_EFFORT,
     )
     return response.choices[0].message.content
 
@@ -154,6 +156,7 @@ def _groq_run_agentic(question, context, tools, execute_tool, memory=None, syste
             temperature=0.2,
             top_p=0.9,
             max_tokens=1024,
+            reasoning_effort=settings.GROQ_REASONING_EFFORT,
         )
         message = response.choices[0].message
 

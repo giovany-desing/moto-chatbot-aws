@@ -38,8 +38,12 @@ def register_manual(filename: str) -> int:
         return cur.fetchone()[0]
 
 
-def save_chunks(manual_id: int, filename: str, chunks: list[dict]) -> int:
+def save_chunk_batch(manual_id: int, filename: str, chunks: list[dict]) -> int:
     """
+    Inserta UN LOTE de chunks (no actualiza el estado de "manuales" --
+    ver finalize_manual). Permite guardado incremental: si el proceso
+    de indexacion falla a mitad de camino, los lotes ya insertados con
+    esta funcion no se pierden.
     chunks: [{"page": int, "text": str, "embedding": list[float]}, ...]
     """
     with db_cursor() as (conn, cur):
@@ -51,16 +55,22 @@ def save_chunks(manual_id: int, filename: str, chunks: list[dict]) -> int:
                 """,
                 [manual_id, filename, chunk["page"], chunk["text"], chunk["embedding"]],
             )
+    logger.info(f"Guardado lote de {len(chunks)} chunks para {filename}")
+    return len(chunks)
+
+
+def finalize_manual(manual_id: int, total_chunks: int, total_pages: int) -> None:
+    """Marca el manual como completamente indexado, con el conteo final real (llamar UNA vez, al terminar todos los lotes)."""
+    with db_cursor() as (conn, cur):
         cur.execute(
             """
             UPDATE manuales
             SET chunks = %s, pages = %s, indexed = TRUE, updated_at = NOW()
             WHERE id = %s
             """,
-            [len(chunks), max((c["page"] for c in chunks), default=0), manual_id],
+            [total_chunks, total_pages, manual_id],
         )
-    logger.info(f"Guardados {len(chunks)} chunks para {filename}")
-    return len(chunks)
+    logger.info(f"Manual id={manual_id} marcado como indexado ({total_chunks} chunks, {total_pages} páginas)")
 
 
 def search(query_embedding: list[float], filename: str | None = None, top_k: int | None = None) -> list[dict]:

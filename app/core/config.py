@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     MEMORY_MAX_MESSAGES: int = 6
 
     # Contextual Retrieval
-    CONTEXTUAL_RETRIEVAL_ENABLED: bool = False
-    CONTEXT_MAX_DOC_CHARS: int = 6000
+    CONTEXTUAL_RETRIEVAL_ENABLED: bool = True
+    CONTEXT_MAX_DOC_CHARS: int = 2000
 
     # Reranking: proveedor conmutable (local = BGE reranker, bedrock = casos atípicos)
     RERANKING_ENABLED: bool = True
@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "groq"
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "openai/gpt-oss-120b"
+    GROQ_REASONING_EFFORT: str = "low"  # low/medium/high -- low reduce tokens y evita respuestas vacias con max_tokens ajustado
 
     # Embeddings: proveedor conmutable (local = BGE-M3, bedrock = Titan)
     EMBEDDING_PROVIDER: str = "local"
