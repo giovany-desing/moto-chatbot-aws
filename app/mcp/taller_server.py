@@ -1,7 +1,16 @@
 """
 Herramientas MCP del taller — evolución del chatbot de "consultor de
 manuales" a "asistente operativo completo".
+
+Cada tool tiene un modelo Pydantic de validacion en execute_tool(), que
+se aplica ANTES de llamar a la funcion real -- el LLM puede pedir
+cualquier valor via tool-calling, y el inputSchema/toolSpec que ve el
+modelo es solo una sugerencia declarativa, no una garantia. Sin esta
+validacion, un kilometraje negativo o una lista de trabajos vacia
+pasaban directo al INSERT sin fricción.
 """
+from pydantic import BaseModel, Field, ValidationError
+
 from app.core.logging import get_logger
 from app.services.db_service import db_cursor
 
@@ -172,12 +181,57 @@ def get_tools_schema() -> list[dict]:
     return _TOOLS_SCHEMA
 
 
+# =====================================================================
+# Validacion (Pydantic) -- se aplica ANTES de ejecutar cada tool, ver
+# execute_tool(). El inputSchema de arriba es solo lo que el LLM ve
+# como sugerencia; esto es lo que realmente se hace cumplir.
+# =====================================================================
+
+class _ConsultarInventarioParams(BaseModel):
+    repuesto: str = Field(min_length=1, max_length=200)
+
+
+class _CrearOrdenServicioParams(BaseModel):
+    cliente: str = Field(min_length=1, max_length=200)
+    moto: str = Field(min_length=1, max_length=200)
+    kilometraje: int = Field(ge=0, le=500_000)
+    trabajos: list[str] = Field(min_length=1)
+    placa: str | None = Field(default=None, max_length=20)
+
+
+class _HistorialVehiculoParams(BaseModel):
+    placa: str = Field(min_length=1, max_length=20)
+
+
+class _VerificarRepuestosParams(BaseModel):
+    repuestos_necesarios: list[str] = Field(min_length=1)
+
+
+_VALIDACION = {
+    "consultar_inventario": _ConsultarInventarioParams,
+    "crear_orden_servicio": _CrearOrdenServicioParams,
+    "historial_vehiculo": _HistorialVehiculoParams,
+    "verificar_repuestos_mantenimiento": _VerificarRepuestosParams,
+}
+
+
 def execute_tool(name: str, parameters: dict) -> dict:
     if name not in _TOOLS:
         logger.warning(f"Herramienta MCP desconocida solicitada: {name}")
         return {"error": f"herramienta '{name}' no existe"}
+
+    modelo_validacion = _VALIDACION.get(name)
+    if modelo_validacion:
+        try:
+            parametros_validados = modelo_validacion(**parameters).model_dump()
+        except ValidationError as exc:
+            logger.warning(f"Parametros invalidos para tool {name}: {exc}")
+            return {"error": f"parametros invalidos para '{name}': {exc.errors()[0]['msg']}"}
+    else:
+        parametros_validados = parameters
+
     try:
-        return _TOOLS[name](**parameters)
+        return _TOOLS[name](**parametros_validados)
     except Exception as exc:
         logger.error(f"Error ejecutando herramienta {name}: {exc}")
         return {"error": str(exc)}

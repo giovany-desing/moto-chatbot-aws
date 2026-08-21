@@ -2,7 +2,13 @@
 Herramientas MCP de atención al cliente / ventas — el "empleado digital"
 comercial. Consulta catálogo, simula financiamiento y escala a un asesor
 humano cuando el caso lo requiere (ver leads).
+
+Cada tool tiene un modelo Pydantic de validacion en execute_tool(), que
+se aplica ANTES de ejecutar la funcion real -- ver taller_server.py para
+la misma logica del lado del taller.
 """
+from pydantic import BaseModel, Field, ValidationError
+
 from app.core.logging import get_logger
 from app.services.db_service import db_cursor
 
@@ -231,12 +237,60 @@ def get_tools_schema() -> list[dict]:
     return _TOOLS_SCHEMA
 
 
+# =====================================================================
+# Validacion (Pydantic) -- se aplica ANTES de ejecutar cada tool.
+# =====================================================================
+
+class _BuscarMotosCatalogoParams(BaseModel):
+    uso: str | None = Field(default=None, max_length=50)
+    presupuesto_max: float | None = Field(default=None, gt=0)
+
+
+class _RecomendarMotoParams(BaseModel):
+    necesidad: str = Field(min_length=1, max_length=500)
+    presupuesto_max: float | None = Field(default=None, gt=0)
+
+
+class _SimularFinanciamientoParams(BaseModel):
+    precio_moto: float = Field(gt=0)
+    entrada: float = Field(ge=0)
+    plazo_meses: int = Field(gt=0, le=72)
+
+
+class _RegistrarLeadParams(BaseModel):
+    nombre_cliente: str = Field(min_length=1, max_length=200)
+    interes: str = Field(min_length=1, max_length=500)
+    telefono: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=200)
+    motivo_escalamiento: str | None = Field(default=None, max_length=500)
+    session_id: str | None = Field(default=None, max_length=100)
+
+
+_VALIDACION = {
+    "buscar_motos_catalogo": _BuscarMotosCatalogoParams,
+    "recomendar_moto": _RecomendarMotoParams,
+    "simular_financiamiento": _SimularFinanciamientoParams,
+    "registrar_lead": _RegistrarLeadParams,
+}
+
+
 def execute_tool(name: str, parameters: dict) -> dict:
     if name not in _TOOLS:
         logger.warning(f"Herramienta MCP de ventas desconocida solicitada: {name}")
         return {"error": f"herramienta '{name}' no existe"}
+
+    modelo_validacion = _VALIDACION.get(name)
+    if modelo_validacion:
+        try:
+            parametros_validados = modelo_validacion(**parameters).model_dump()
+        except ValidationError as exc:
+            logger.warning(f"Parametros invalidos para tool de ventas {name}: {exc}")
+            return {"error": f"parametros invalidos para '{name}': {exc.errors()[0]['msg']}"}
+    else:
+        parametros_validados = parameters
+
     try:
-        return _TOOLS[name](**parameters)
+        return _TOOLS[name](**parametros_validados)
     except Exception as exc:
         logger.error(f"Error ejecutando herramienta de ventas {name}: {exc}")
         return {"error": str(exc)}
