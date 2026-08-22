@@ -52,6 +52,11 @@ def answer_cliente(question: str, session_id: str | None = None) -> dict:
         return {**cached, "from_cache": True}
 
     query_embedding = embedding_service.embed_query(question)
+
+    cached_semantico = cache_service.get_semantic(question, query_embedding, "cliente")
+    if cached_semantico:
+        return {**cached_semantico, "from_cache": True}
+
     chunks = vector_service.search_hybrid(query_embedding, question)
     memory = cache_service.get_memory(session_id or "")
     tools = get_tools_schema()
@@ -68,5 +73,6 @@ def answer_cliente(question: str, session_id: str | None = None) -> dict:
     }
 
     cache_service.set(question, result, "cliente")
+    cache_service.set_semantic(question, query_embedding, result, "cliente")
     cache_service.save_memory(session_id or "", question, result["answer"])
     return result

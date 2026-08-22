@@ -1,12 +1,14 @@
 """
 Orquestador RAG. Flujo:
-1. Caché Redis (hit -> respuesta inmediata)
+1. Caché EXACTA Redis (hash -> hit inmediato, la mas rapida)
 2. Embed de la pregunta (embedding_service, proveedor conmutable: local/bedrock)
-3. Retrieval HIBRIDO en pgvector (dense + sparse + RRF + reranking)
-4. Memoria conversacional (Redis, si hay session_id)
-5. Generación con llm_service (proveedor conmutable: groq/bedrock),
+3. Caché SEMANTICA Postgres/pgvector (similitud >= CACHE_SIMILARITY_THRESHOLD
+   -> hit, sin llamar al LLM aunque la pregunta no sea textualmente identica)
+4. Retrieval HIBRIDO en pgvector (dense + sparse + RRF + reranking)
+5. Memoria conversacional (Redis, si hay session_id)
+6. Generación con llm_service (proveedor conmutable: groq/bedrock),
    opcionalmente con herramientas MCP vía tool-calling nativo
-6. Guardar en caché y memoria
+7. Guardar en ambas capas de caché y en memoria
 """
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -37,6 +39,11 @@ def answer(question: str, filename: str | None = None, session_id: str | None = 
         return {**cached, "from_cache": True}
 
     query_embedding = embedding_service.embed_query(question)
+
+    cached_semantico = cache_service.get_semantic(question, query_embedding, filename)
+    if cached_semantico:
+        return {**cached_semantico, "from_cache": True}
+
     chunks = vector_service.search_hybrid(query_embedding, question, filename)
     memory = cache_service.get_memory(session_id or "")
 
@@ -50,6 +57,7 @@ def answer(question: str, filename: str | None = None, session_id: str | None = 
     }
 
     cache_service.set(question, result, filename)
+    cache_service.set_semantic(question, query_embedding, result, filename)
     cache_service.save_memory(session_id or "", question, respuesta_texto)
     return result
 
@@ -68,6 +76,11 @@ def answer_with_tools(question: str, filename: str | None = None, session_id: st
         return {**cached, "from_cache": True}
 
     query_embedding = embedding_service.embed_query(question)
+
+    cached_semantico = cache_service.get_semantic(question, query_embedding, filename)
+    if cached_semantico:
+        return {**cached_semantico, "from_cache": True}
+
     chunks = vector_service.search_hybrid(query_embedding, question, filename)
     memory = cache_service.get_memory(session_id or "")
     tools = get_tools_schema()
@@ -82,5 +95,6 @@ def answer_with_tools(question: str, filename: str | None = None, session_id: st
     }
 
     cache_service.set(question, result, filename)
+    cache_service.set_semantic(question, query_embedding, result, filename)
     cache_service.save_memory(session_id or "", question, result["answer"])
     return result

@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP_TOKENS: int = 64
     CHUNK_MIN_SIZE_TOKENS: int = 20
     TOP_K_RESULTS: int = 5
-    CACHE_SIMILARITY_THRESHOLD: float = 0.92
+    CACHE_SIMILARITY_THRESHOLD: float = 0.85  # calibrado con BGE-M3: parafrasis reales 0.86-0.89, temas distintos 0.45-0.51
     CACHE_TTL_SECONDS: int = 3600
     MEMORY_TTL_SECONDS: int = 1800
     MEMORY_MAX_MESSAGES: int = 6

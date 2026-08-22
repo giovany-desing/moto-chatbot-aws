@@ -135,6 +135,19 @@ CREATE TABLE IF NOT EXISTS financiamiento_opciones (
     activo              BOOLEAN DEFAULT TRUE
 );
 
+CREATE TABLE IF NOT EXISTS cache_semantico (
+    id                SERIAL PRIMARY KEY,
+    filename          TEXT,
+    question_text     TEXT NOT NULL,
+    question_embedding vector(1024) NOT NULL,
+    result_json       TEXT NOT NULL,
+    created_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS cache_semantico_embedding_hnsw_idx
+ON cache_semantico USING hnsw (question_embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64);
+
 CREATE TABLE IF NOT EXISTS leads (
     id                   SERIAL PRIMARY KEY,
     nombre_cliente       TEXT,
