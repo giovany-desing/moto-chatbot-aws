@@ -45,16 +45,18 @@ def save_chunk_batch(manual_id: int, filename: str, chunks: list[dict]) -> int:
     ver finalize_manual). Permite guardado incremental: si el proceso
     de indexacion falla a mitad de camino, los lotes ya insertados con
     esta funcion no se pierden.
-    chunks: [{"page": int, "text": str, "embedding": list[float]}, ...]
+    chunks: [{"page": int, "text": str, "embedding": list[float], "parent_text": str}, ...]
+    parent_text es opcional -- si no viene, se usa "text" como fallback
+    (compatibilidad con codigo que aun no lo genera).
     """
     with db_cursor() as (conn, cur):
         for chunk in chunks:
             cur.execute(
                 """
-                INSERT INTO chunks (manual_id, filename, page, text, embedding)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO chunks (manual_id, filename, page, text, parent_text, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                [manual_id, filename, chunk["page"], chunk["text"], chunk["embedding"]],
+                [manual_id, filename, chunk["page"], chunk["text"], chunk.get("parent_text", chunk["text"]), chunk["embedding"]],
             )
     logger.info(f"Guardado lote de {len(chunks)} chunks para {filename}")
     return len(chunks)
@@ -83,7 +85,7 @@ def search(query_embedding: list[float], filename: str | None = None, top_k: int
         if filename:
             cur.execute(
                 """
-                SELECT id, filename, page, text, 1 - (embedding <=> %s::vector) AS relevance
+                SELECT id, filename, page, text, parent_text, 1 - (embedding <=> %s::vector) AS relevance
                 FROM chunks
                 WHERE filename = %s
                 ORDER BY embedding <=> %s::vector
@@ -94,7 +96,7 @@ def search(query_embedding: list[float], filename: str | None = None, top_k: int
         else:
             cur.execute(
                 """
-                SELECT id, filename, page, text, 1 - (embedding <=> %s::vector) AS relevance
+                SELECT id, filename, page, text, parent_text, 1 - (embedding <=> %s::vector) AS relevance
                 FROM chunks
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
@@ -104,7 +106,7 @@ def search(query_embedding: list[float], filename: str | None = None, top_k: int
         rows = cur.fetchall()
 
     return [
-        {"id": r[0], "filename": r[1], "page": r[2], "text": r[3], "relevance": round(float(r[4]), 4)}
+        {"id": r[0], "filename": r[1], "page": r[2], "text": r[3], "parent_text": r[4], "relevance": round(float(r[5]), 4)}
         for r in rows
     ]
 
@@ -117,7 +119,7 @@ def search_sparse(query_text: str, filename: str | None = None, top_k: int | Non
         if filename:
             cur.execute(
                 """
-                SELECT id, filename, page, text, ts_rank_cd(text_search, plainto_tsquery('spanish', %s)) AS relevance
+                SELECT id, filename, page, text, parent_text, ts_rank_cd(text_search, plainto_tsquery('spanish', %s)) AS relevance
                 FROM chunks
                 WHERE filename = %s AND text_search @@ plainto_tsquery('spanish', %s)
                 ORDER BY relevance DESC
@@ -128,7 +130,7 @@ def search_sparse(query_text: str, filename: str | None = None, top_k: int | Non
         else:
             cur.execute(
                 """
-                SELECT id, filename, page, text, ts_rank_cd(text_search, plainto_tsquery('spanish', %s)) AS relevance
+                SELECT id, filename, page, text, parent_text, ts_rank_cd(text_search, plainto_tsquery('spanish', %s)) AS relevance
                 FROM chunks
                 WHERE text_search @@ plainto_tsquery('spanish', %s)
                 ORDER BY relevance DESC
@@ -139,7 +141,7 @@ def search_sparse(query_text: str, filename: str | None = None, top_k: int | Non
         rows = cur.fetchall()
 
     return [
-        {"id": r[0], "filename": r[1], "page": r[2], "text": r[3], "relevance": round(float(r[4]), 4)}
+        {"id": r[0], "filename": r[1], "page": r[2], "text": r[3], "parent_text": r[4], "relevance": round(float(r[5]), 4)}
         for r in rows
     ]
 

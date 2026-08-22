@@ -20,6 +20,15 @@ una frase de contexto que lo sitúa dentro del documento completo.
 El texto ORIGINAL del chunk (sin el contexto agregado) es el que se
 guarda y se le muestra al usuario al citar la fuente -- el contexto
 solo mejora la calidad de la búsqueda, nunca se ve en la respuesta.
+
+Parent-child chunking (version simplificada, ver db_service.py): cada
+chunk pequeño ("child", usado para busqueda de precision) se guarda
+junto con el texto COMPLETO de su pagina de origen ("parent_text"),
+que es lo que realmente se le manda al LLM como contexto -- mas
+contexto real sin perder precision en la busqueda semantica. No es
+deteccion real de secciones (eso requeriria parsear encabezados por
+tamaño de fuente), la pagina es el "padre" disponible sin trabajo de
+parsing adicional.
 """
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -47,6 +56,10 @@ class IndexingWorker:
             return {"filename": filename, "status": "sin_contenido", "chunks": 0}
 
         documento_completo = "\n".join(p["text"] for p in paginas) if settings.CONTEXTUAL_RETRIEVAL_ENABLED else None
+        texto_completo_por_pagina = {p["page"]: p["text"] for p in paginas}
+
+        for fragmento in fragmentos:
+            fragmento["parent_text"] = texto_completo_por_pagina.get(fragmento["page"], fragmento["text"])
 
         # Registrar el manual DESDE EL INICIO (no al final) -- si el
         # proceso muere a mitad de camino, el manual ya existe con lo

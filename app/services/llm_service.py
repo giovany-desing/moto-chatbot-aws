@@ -51,10 +51,18 @@ def _get_groq_client() -> Groq:
 
 
 def _build_context_block(chunks: list[dict]) -> str:
+    """
+    Construye el bloque de contexto para el LLM. Usa parent_text (texto
+    COMPLETO de la pagina de origen) cuando esta disponible -- el chunk
+    pequeño en "text" solo se usa para busqueda de precision, no para
+    generacion, ya que da menos contexto real al modelo. Si parent_text
+    no viene (chunks indexados antes de este cambio), cae de vuelta a
+    "text" sin romper nada.
+    """
     if not chunks:
         return "No se encontró contexto relevante en los manuales indexados."
     partes = [
-        f"[Manual: {c['filename']} — página {c['page']}]\n{c['text']}"
+        f"[Manual: {c['filename']} — página {c['page']}]\n{c.get('parent_text') or c['text']}"
         for c in chunks
     ]
     return "\n\n---\n\n".join(partes)

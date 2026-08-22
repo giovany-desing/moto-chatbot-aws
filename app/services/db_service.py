@@ -33,9 +33,20 @@ CREATE TABLE IF NOT EXISTS chunks (
     filename  TEXT NOT NULL,
     page      INT NOT NULL,
     text      TEXT NOT NULL,
+    parent_text TEXT,
     embedding vector(1024),
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Parent-child chunking (version simplificada): "text" es el chunk
+-- pequeño que se embebe e indexa para busqueda de precision;
+-- "parent_text" es el texto COMPLETO de la pagina de origen, que se
+-- expande al construir el contexto para el LLM (mas contexto real sin
+-- perder precision en la busqueda). No es deteccion real de secciones
+-- (eso requeriria parsear encabezados por tamaño de fuente en el PDF,
+-- fuera de alcance de este punto) -- la pagina es el "padre" disponible
+-- sin trabajo de parsing adicional.
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS parent_text TEXT;
 
 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw_idx
 ON chunks USING hnsw (embedding vector_cosine_ops)
