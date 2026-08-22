@@ -10,6 +10,7 @@ Orquestador RAG. Flujo:
 """
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.observability import observe
 from app.services import cache_service, embedding_service, vector_service, llm_service
 
 logger = get_logger(__name__)
@@ -29,6 +30,7 @@ def _fuentes(chunks: list[dict]) -> list[dict]:
     ]
 
 
+@observe()
 def answer(question: str, filename: str | None = None, session_id: str | None = None) -> dict:
     cached = cache_service.get(question, filename)
     if cached:
@@ -52,6 +54,7 @@ def answer(question: str, filename: str | None = None, session_id: str | None = 
     return result
 
 
+@observe()
 def answer_with_tools(question: str, filename: str | None = None, session_id: str | None = None) -> dict:
     """
     Igual que answer(), pero permite que el LLM invoque herramientas MCP

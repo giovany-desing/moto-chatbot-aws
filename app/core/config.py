@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     RERANK_MODEL: str = "amazon.rerank-v1:0"
     LOCAL_RERANK_MODEL: str = "BAAI/bge-reranker-v2-m3"
 
+    # Observabilidad (Langfuse Cloud) -- opcional, no bloqueante. Si las
+    # keys estan vacias, las trazas simplemente no se envian.
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_BASE_URL: str = "https://us.cloud.langfuse.com"
+
     # LLM de chat: proveedor conmutable (groq = producción, bedrock = casos atípicos)
     LLM_PROVIDER: str = "groq"
     GROQ_API_KEY: str = ""

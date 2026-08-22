@@ -17,6 +17,7 @@ from groq import APIConnectionError, APIStatusError
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.observability import observe
 
 logger = get_logger(__name__)
 
@@ -25,11 +26,15 @@ _BASE_DELAY = 1.0
 
 _SYSTEM_PROMPT = (
     "Eres un asistente técnico para mecánicos de motocicletas. Respondes en "
-    "español, de forma precisa y concreta, basándote únicamente en el "
-    "contexto de manuales de taller proporcionado. Cuando cites una "
-    "especificación, indica de qué página del manual proviene. Si no "
-    "tienes información suficiente en el contexto, dilo claramente en "
-    "lugar de inventar datos."
+    "español, de forma precisa y concreta. Para preguntas TÉCNICAS (procedimientos, "
+    "especificaciones, torques, mantenimiento), básate únicamente en el contexto "
+    "de manuales de taller proporcionado, e indica de qué página proviene cada "
+    "especificación. Para preguntas OPERATIVAS (disponibilidad de repuestos, "
+    "crear una orden de servicio, historial de un vehículo), el contexto de "
+    "manuales NO tiene esa información -- SIEMPRE usa las herramientas "
+    "disponibles para consultar datos reales en esos casos, en vez de concluir "
+    "que no tienes información suficiente. Si ni el contexto ni las "
+    "herramientas responden la pregunta, dilo claramente en lugar de inventar datos."
 )
 
 _groq_client: Groq | None = None
@@ -313,6 +318,7 @@ def _bedrock_run_agentic(question, context, tools, execute_tool, memory=None, sy
 # Interfaz pública — usada por rag_service.py, sales_service.py, context_service.py
 # =====================================================================
 
+@observe()
 def generate(question: str, context: list[dict], memory: list[dict] | None = None) -> str:
     """Generación simple con contexto RAG, sin herramientas."""
     if settings.LLM_PROVIDER == "groq":
@@ -322,6 +328,7 @@ def generate(question: str, context: list[dict], memory: list[dict] | None = Non
     raise ValueError(f"LLM_PROVIDER desconocido: {settings.LLM_PROVIDER!r}")
 
 
+@observe()
 def generate_simple(prompt: str, max_tokens: int = 200) -> str:
     """Llamada simple sin RAG/memoria/herramientas (ej. Contextual Retrieval)."""
     if settings.LLM_PROVIDER == "groq":
@@ -331,6 +338,7 @@ def generate_simple(prompt: str, max_tokens: int = 200) -> str:
     raise ValueError(f"LLM_PROVIDER desconocido: {settings.LLM_PROVIDER!r}")
 
 
+@observe()
 def run_agentic(question: str, context: list[dict], tools: list[dict], execute_tool, memory: list[dict] | None = None, system_prompt: str | None = None, max_iterations: int = 4) -> dict:
     """
     Orquesta el loop completo de tool-calling (múltiples iteraciones hasta

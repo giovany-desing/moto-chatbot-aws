@@ -15,6 +15,7 @@ un segundo pase de reranking real sobre los candidatos fusionados.
 """
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.observability import observe
 from app.services import rerank_service
 from app.services.db_service import db_cursor
 
@@ -168,6 +169,7 @@ def _reciprocal_rank_fusion(result_lists: list[list[dict]], top_k: int) -> list[
     return resultado_final
 
 
+@observe()
 def search_hybrid(query_embedding: list[float], query_text: str, filename: str | None = None, top_k: int | None = None) -> list[dict]:
     """
     Retrieval HIBRIDO completo: dense + sparse -> RRF -> reranking.

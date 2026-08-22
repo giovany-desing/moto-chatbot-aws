@@ -7,6 +7,7 @@ LLM vía llm_service (proveedor conmutable: groq/bedrock).
 """
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.observability import observe
 from app.services import cache_service, embedding_service, vector_service, llm_service
 
 logger = get_logger(__name__)
@@ -42,6 +43,7 @@ def _fuentes(chunks: list[dict]) -> list[dict]:
     ]
 
 
+@observe()
 def answer_cliente(question: str, session_id: str | None = None) -> dict:
     from app.mcp.ventas_server import get_tools_schema, execute_tool
 
