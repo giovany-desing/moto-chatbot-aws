@@ -68,6 +68,9 @@ def answer_cliente(question: str, session_id: str | None = None) -> dict:
         return {**cached_semantico, "from_cache": True}
 
     chunks = vector_service.search_hybrid(query_embedding, question)
+    if not vector_service.chunks_son_relevantes(chunks):
+        logger.info("Corrective RAG: ningún chunk supera el umbral de relevancia, se trata como sin contexto")
+        chunks = []
     memory = cache_service.get_memory(session_id or "")
     tools = get_tools_schema()
 

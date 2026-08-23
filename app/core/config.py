@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     RERANK_MODEL: str = "amazon.rerank-v1:0"
     LOCAL_RERANK_MODEL: str = "BAAI/bge-reranker-v2-m3"
 
+    # Corrective RAG: umbral minimo de relevancia (score del reranker)
+    # para considerar que el retrieval SI trajo contexto util. Calibrado con
+    # datos reales: preguntas sin relacion al manual dan 0.0, preguntas
+    # relevantes dan >= 0.375 en las pruebas de hoy.
+    CRAG_RELEVANCE_THRESHOLD: float = 0.15
+
     # Observabilidad (Langfuse Cloud) -- opcional, no bloqueante. Si las
     # keys estan vacias, las trazas simplemente no se envian.
     LANGFUSE_SECRET_KEY: str = ""

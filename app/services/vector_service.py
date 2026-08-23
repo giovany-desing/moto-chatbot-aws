@@ -193,6 +193,21 @@ def search_hybrid(query_embedding: list[float], query_text: str, filename: str |
     return candidatos[:top_k]
 
 
+def chunks_son_relevantes(chunks: list[dict]) -> bool:
+    """
+    Corrective RAG (grading liviano, punto #9 del plan): usa el propio
+    score del reranker (ya calculado, sin llamada adicional a un LLM)
+    para decidir si el retrieval realmente trajo contexto util o no.
+    Si el mejor candidato no supera CRAG_RELEVANCE_THRESHOLD, se
+    considera que NO hay contexto relevante -- el llamador debe tratar
+    esto como "sin contexto" en vez de forzar una respuesta con chunks
+    debiles/irrelevantes. Calibrado con datos reales (ver config.py).
+    """
+    if not chunks:
+        return False
+    return chunks[0]["relevance"] >= settings.CRAG_RELEVANCE_THRESHOLD
+
+
 def list_manuales() -> list[dict]:
     with db_cursor() as (conn, cur):
         cur.execute(

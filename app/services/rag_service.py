@@ -5,6 +5,10 @@ Orquestador RAG. Flujo:
 3. Caché SEMANTICA Postgres/pgvector (similitud >= CACHE_SIMILARITY_THRESHOLD
    -> hit, sin llamar al LLM aunque la pregunta no sea textualmente identica)
 4. Retrieval HIBRIDO en pgvector (dense + sparse + RRF + reranking)
+4b. Corrective RAG (grading liviano): si NINGUN chunk supera
+    CRAG_RELEVANCE_THRESHOLD, se descartan todos -- evita forzar una
+    respuesta con contexto irrelevante/debil (ver
+    vector_service.chunks_son_relevantes())
 5. Memoria conversacional (Redis, si hay session_id)
 6. Generación con llm_service (proveedor conmutable: groq/bedrock),
    opcionalmente con herramientas MCP vía tool-calling nativo
@@ -45,6 +49,9 @@ def answer(question: str, filename: str | None = None, session_id: str | None = 
         return {**cached_semantico, "from_cache": True}
 
     chunks = vector_service.search_hybrid(query_embedding, question, filename)
+    if not vector_service.chunks_son_relevantes(chunks):
+        logger.info("Corrective RAG: ningún chunk supera el umbral de relevancia, se trata como sin contexto")
+        chunks = []
     memory = cache_service.get_memory(session_id or "")
 
     respuesta_texto = llm_service.generate(question, chunks, memory)
@@ -82,6 +89,9 @@ def answer_with_tools(question: str, filename: str | None = None, session_id: st
         return {**cached_semantico, "from_cache": True}
 
     chunks = vector_service.search_hybrid(query_embedding, question, filename)
+    if not vector_service.chunks_son_relevantes(chunks):
+        logger.info("Corrective RAG: ningún chunk supera el umbral de relevancia, se trata como sin contexto")
+        chunks = []
     memory = cache_service.get_memory(session_id or "")
     tools = get_tools_schema()
 
