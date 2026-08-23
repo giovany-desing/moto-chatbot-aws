@@ -58,13 +58,25 @@ def _build_context_block(chunks: list[dict]) -> str:
     generacion, ya que da menos contexto real al modelo. Si parent_text
     no viene (chunks indexados antes de este cambio), cae de vuelta a
     "text" sin romper nada.
+
+    DEDUPLICA por pagina: si 2+ chunks recuperados vienen de la misma
+    pagina, su parent_text es identico (la pagina completa) -- incluirlo
+    varias veces desperdicia tokens sin agregar informacion nueva. Esto
+    se descubrio con un error real de Groq (413, limite de tokens por
+    minuto) al combinar parent-child chunking con tool-calling.
     """
     if not chunks:
         return "No se encontró contexto relevante en los manuales indexados."
-    partes = [
-        f"[Manual: {c['filename']} — página {c['page']}]\n{c.get('parent_text') or c['text']}"
-        for c in chunks
-    ]
+
+    vistos: set[tuple[str, int]] = set()
+    partes = []
+    for c in chunks:
+        clave = (c["filename"], c["page"])
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        partes.append(f"[Manual: {c['filename']} — página {c['page']}]\n{c.get('parent_text') or c['text']}")
+
     return "\n\n---\n\n".join(partes)
 
 
@@ -78,17 +90,40 @@ def _build_user_prompt(question: str, context: list[dict]) -> str:
 # =====================================================================
 
 def _bedrock_tools_to_openai(tools: list[dict]) -> list[dict]:
-    """Convierte el formato toolSpec/inputSchema de Bedrock al formato
-    function-calling de OpenAI/Groq, sin tocar los MCP servers."""
+    """
+    Convierte el formato toolSpec/inputSchema de Bedrock al formato
+    function-calling de OpenAI/Groq, sin tocar los MCP servers.
+
+    Los parametros OPCIONALES (no listados en "required") se marcan
+    como aceptando null explicitamente (type: [tipo_original, "null"]).
+    Sin esto, Groq rechaza con un error 400 real cuando el modelo decide
+    incluir un parametro opcional con valor null en vez de omitirlo por
+    completo (confirmado con un caso real: recomendar_moto con
+    presupuesto_max=null era rechazado por el validador de Groq).
+    """
     converted = []
     for t in tools:
         spec = t["toolSpec"]
+        json_schema = spec["inputSchema"]["json"]
+        propiedades = json_schema.get("properties", {})
+        requeridos = set(json_schema.get("required", []))
+
+        propiedades_ajustadas = {}
+        for nombre_param, definicion in propiedades.items():
+            definicion = dict(definicion)
+            if nombre_param not in requeridos and isinstance(definicion.get("type"), str) and definicion["type"] != "null":
+                definicion["type"] = [definicion["type"], "null"]
+            propiedades_ajustadas[nombre_param] = definicion
+
+        parameters = dict(json_schema)
+        parameters["properties"] = propiedades_ajustadas
+
         converted.append({
             "type": "function",
             "function": {
                 "name": spec["name"],
                 "description": spec["description"],
-                "parameters": spec["inputSchema"]["json"],
+                "parameters": parameters,
             },
         })
     return converted

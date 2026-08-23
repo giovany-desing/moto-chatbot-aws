@@ -1,12 +1,12 @@
 [
   {
     "question": "¿Cada cuántos kilómetros se cambia el aceite de motor?",
-    "expected_pages": [23, 24],
+    "expected_pages": [16, 17],
     "audiencia": "mecanico"
   },
   {
     "question": "¿Cuál es la capacidad del cárter de aceite?",
-    "expected_pages": [24],
+    "expected_pages": [33],
     "audiencia": "mecanico"
   },
   {

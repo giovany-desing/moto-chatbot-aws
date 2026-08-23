@@ -1,39 +1,45 @@
 """
-Script de evaluacion RAG -- corre LOCALMENTE, fuera de Lambda/AWS Console.
+Script de evaluacion RAG (estilo RAGAS) -- corre EN PROCESO contra el
+pipeline real (rag_service.py, sales_service.py), sin necesitar una API
+desplegada. Cambio respecto a la version original: antes esto llamaba
+via HTTP a una API_BASE_URL desplegada en AWS -- pero el pipeline de hoy
+(Groq + embeddings/reranking locales) nunca se desplego, asi que
+evaluar contra la API vieja hubiera probado el sistema equivocado.
 
-Mide 4 metricas estandar de evaluacion RAG (estilo RAGAS):
-- Context Precision: de los chunks recuperados, ¿que fraccion son
-  realmente relevantes (su pagina esta en expected_pages)?
-- Context Recall: de las paginas relevantes esperadas, ¿que fraccion
-  logro traer el retrieval?
-- Faithfulness: ¿la respuesta esta respaldada por el contexto real
-  (text_preview de las fuentes), o se desvio/invento algo? Evaluado
-  por Nova Lite como "juez", via boto3 directo (no pasa por la API).
-- Answer Relevance: ¿la respuesta aborda realmente la pregunta?
-  Tambien evaluado por Nova Lite como juez.
+Requiere el mismo acceso a Postgres que el resto del proyecto en local
+(tunel SSM + DB_HOST=localhost DB_PORT=15432, ver README).
 
-Requisitos:
-- pip install -r requirements.txt
-- Credenciales AWS configuradas (aws configure) -- el juez llama a
-  Bedrock directamente desde tu Mac, no a traves de la Lambda.
-- La API debe estar desplegada y accesible (usa API_BASE_URL).
+Metricas (estilo RAGAS):
+- Context Precision / Recall: contra expected_pages del dataset
+  (verificadas manualmente contra el manual real, no asumidas).
+- Faithfulness / Answer Relevance: juzgadas por Amazon Nova Lite via
+  Bedrock -- proveedor DISTINTO al que genera las respuestas (Groq),
+  deliberado para reducir sesgo de auto-evaluacion. Es un caso atipico
+  legitimo para seguir usando Bedrock.
 
 Uso:
-    python3 run_evaluation.py
-    API_BASE_URL=https://tu-api/dev python3 run_evaluation.py
+    python3 eval/run_evaluation.py                    # solo reporta
+    python3 eval/run_evaluation.py --gate              # falla (exit 1)
+                                                        # si algun
+                                                        # promedio cae
+                                                        # bajo el umbral
+    python3 eval/run_evaluation.py --gate --threshold 0.75
 """
+import argparse
 import json
 import os
 import statistics
+import sys
 
 import boto3
-import requests
 
-API_BASE_URL = os.environ.get(
-    "API_BASE_URL", "https://fyrr6brbra.execute-api.us-east-1.amazonaws.com/dev"
-)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from app.services import rag_service, sales_service  # noqa: E402
+
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "us.amazon.nova-lite-v1:0")
+DEFAULT_THRESHOLD = 0.7
 
 _bedrock = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
 
@@ -67,7 +73,7 @@ def _judge(prompt: str) -> float | None:
 
 def context_precision(retrieved_pages: list[int], expected_pages: list[int]) -> float | None:
     if not expected_pages:
-        return None  # no aplica (ej. preguntas de ventas sin manual)
+        return None
     if not retrieved_pages:
         return 0.0
     aciertos = len(set(retrieved_pages) & set(expected_pages))
@@ -107,12 +113,12 @@ def answer_relevance(question: str, answer: str) -> float | None:
 
 
 def evaluar_pregunta(item: dict) -> dict:
-    endpoint = "/api/v1/chat-cliente" if item.get("audiencia") == "cliente" else "/api/v1/chat"
     print(f"  -> {item['question']}")
 
-    resp = requests.post(f"{API_BASE_URL}{endpoint}", json={"question": item["question"]}, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
+    if item.get("audiencia") == "cliente":
+        data = sales_service.answer_cliente(item["question"])
+    else:
+        data = rag_service.answer_with_tools(item["question"])
 
     sources = data.get("sources", [])
     retrieved_pages = [s["page"] for s in sources]
@@ -137,25 +143,42 @@ def _promedio(resultados: list[dict], clave: str) -> float | None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gate", action="store_true", help="Falla (exit 1) si algun promedio cae bajo el umbral")
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    args = parser.parse_args()
+
     with open(os.path.join(os.path.dirname(__file__), "dataset.json"), "r", encoding="utf-8") as f:
         dataset = json.load(f)
 
-    print(f"Evaluando {len(dataset)} preguntas contra {API_BASE_URL} ...\n")
+    print(f"Evaluando {len(dataset)} preguntas contra el pipeline local (en proceso, sin API desplegada) ...\n")
     resultados = [evaluar_pregunta(item) for item in dataset]
 
     print("\n=== Resultado detallado ===")
     print(json.dumps(resultados, indent=2, ensure_ascii=False))
 
+    promedios = {
+        "context_precision": _promedio(resultados, "context_precision"),
+        "context_recall": _promedio(resultados, "context_recall"),
+        "faithfulness": _promedio(resultados, "faithfulness"),
+        "answer_relevance": _promedio(resultados, "answer_relevance"),
+    }
+
     print("\n=== Promedios ===")
-    print(f"Context Precision: {_promedio(resultados, 'context_precision')}")
-    print(f"Context Recall:    {_promedio(resultados, 'context_recall')}")
-    print(f"Faithfulness:      {_promedio(resultados, 'faithfulness')}")
-    print(f"Answer Relevance:  {_promedio(resultados, 'answer_relevance')}")
+    for nombre, valor in promedios.items():
+        print(f"{nombre}: {valor}")
 
     out_path = os.path.join(os.path.dirname(__file__), "ultimo_resultado.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(resultados, f, indent=2, ensure_ascii=False)
     print(f"\nResultado completo guardado en {out_path}")
+
+    if args.gate:
+        fallidas = {k: v for k, v in promedios.items() if v is not None and v < args.threshold}
+        if fallidas:
+            print(f"\n❌ GATE FALLIDO -- por debajo del umbral {args.threshold}: {fallidas}")
+            sys.exit(1)
+        print(f"\n✅ GATE APROBADO -- todos los promedios >= {args.threshold}")
 
 
 if __name__ == "__main__":

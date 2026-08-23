@@ -9,3 +9,4 @@ venv/
 .ruff_cache/
 .oncall/
 venv-py39-old/
+eval/ultimo_resultado.json
