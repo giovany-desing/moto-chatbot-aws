@@ -20,11 +20,13 @@ langfuse_client = None
 
 if settings.LANGFUSE_SECRET_KEY and settings.LANGFUSE_PUBLIC_KEY:
     from langfuse import Langfuse, observe as _observe_real
+    from app.core.guardrails import mask_for_langfuse
 
     langfuse_client = Langfuse(
         public_key=settings.LANGFUSE_PUBLIC_KEY,
         secret_key=settings.LANGFUSE_SECRET_KEY,
         base_url=settings.LANGFUSE_BASE_URL,
+        mask=mask_for_langfuse,
     )
     observe = _observe_real
     logger.info("Langfuse habilitado -- las trazas se enviaran a Langfuse Cloud")
