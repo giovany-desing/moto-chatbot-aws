@@ -43,23 +43,48 @@ class Settings(BaseSettings):
     # SQS
     SQS_QUEUE_URL: str
 
-    # RAG
-    CHUNK_SIZE: int = 1000
-    CHUNK_OVERLAP: int = 200
-    CHUNK_MIN_SIZE: int = 100
+    # RAG -- chunking recursivo basado en TOKENS (no caracteres), via
+    # tiktoken cl100k_base como aproximacion estandar del tamano real
+    CHUNK_SIZE_TOKENS: int = 512
+    CHUNK_OVERLAP_TOKENS: int = 64
+    CHUNK_MIN_SIZE_TOKENS: int = 20
     TOP_K_RESULTS: int = 5
-    CACHE_SIMILARITY_THRESHOLD: float = 0.92
+    CACHE_SIMILARITY_THRESHOLD: float = 0.85  # calibrado con BGE-M3: parafrasis reales 0.86-0.89, temas distintos 0.45-0.51
     CACHE_TTL_SECONDS: int = 3600
     MEMORY_TTL_SECONDS: int = 1800
     MEMORY_MAX_MESSAGES: int = 6
 
     # Contextual Retrieval
-    CONTEXTUAL_RETRIEVAL_ENABLED: bool = False
-    CONTEXT_MAX_DOC_CHARS: int = 6000
+    CONTEXTUAL_RETRIEVAL_ENABLED: bool = True
+    CONTEXT_MAX_DOC_CHARS: int = 2000
 
-    # Reranking
+    # Reranking: proveedor conmutable (local = BGE reranker, bedrock = casos atípicos)
     RERANKING_ENABLED: bool = True
+    RERANK_PROVIDER: str = "local"
     RERANK_MODEL: str = "amazon.rerank-v1:0"
+    LOCAL_RERANK_MODEL: str = "BAAI/bge-reranker-v2-m3"
+
+    # Corrective RAG: umbral minimo de relevancia (score del reranker)
+    # para considerar que el retrieval SI trajo contexto util. Calibrado con
+    # datos reales: preguntas sin relacion al manual dan 0.0, preguntas
+    # relevantes dan >= 0.375 en las pruebas de hoy.
+    CRAG_RELEVANCE_THRESHOLD: float = 0.15
+
+    # Observabilidad (Langfuse Cloud) -- opcional, no bloqueante. Si las
+    # keys estan vacias, las trazas simplemente no se envian.
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_BASE_URL: str = "https://us.cloud.langfuse.com"
+
+    # LLM de chat: proveedor conmutable (groq = producción, bedrock = casos atípicos)
+    LLM_PROVIDER: str = "groq"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
+    GROQ_REASONING_EFFORT: str = "low"  # low/medium/high -- low reduce tokens y evita respuestas vacias con max_tokens ajustado
+
+    # Embeddings: proveedor conmutable (local = BGE-M3, bedrock = Titan)
+    EMBEDDING_PROVIDER: str = "local"
+    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-m3"
 
     @property
     def database_url(self) -> str:

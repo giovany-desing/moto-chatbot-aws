@@ -15,6 +15,7 @@ logger = get_logger(__name__)
 
 _SCHEMA_SQL = f"""
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE TABLE IF NOT EXISTS manuales (
     id         SERIAL PRIMARY KEY,
@@ -32,9 +33,20 @@ CREATE TABLE IF NOT EXISTS chunks (
     filename  TEXT NOT NULL,
     page      INT NOT NULL,
     text      TEXT NOT NULL,
+    parent_text TEXT,
     embedding vector(1024),
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Parent-child chunking (version simplificada): "text" es el chunk
+-- pequeño que se embebe e indexa para busqueda de precision;
+-- "parent_text" es el texto COMPLETO de la pagina de origen, que se
+-- expande al construir el contexto para el LLM (mas contexto real sin
+-- perder precision en la busqueda). No es deteccion real de secciones
+-- (eso requeriria parsear encabezados por tamaño de fuente en el PDF,
+-- fuera de alcance de este punto) -- la pagina es el "padre" disponible
+-- sin trabajo de parsing adicional.
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS parent_text TEXT;
 
 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw_idx
 ON chunks USING hnsw (embedding vector_cosine_ops)
@@ -133,6 +145,19 @@ CREATE TABLE IF NOT EXISTS financiamiento_opciones (
     entrada_minima_pct  DECIMAL(5,2) NOT NULL,
     activo              BOOLEAN DEFAULT TRUE
 );
+
+CREATE TABLE IF NOT EXISTS cache_semantico (
+    id                SERIAL PRIMARY KEY,
+    filename          TEXT,
+    question_text     TEXT NOT NULL,
+    question_embedding vector(1024) NOT NULL,
+    result_json       TEXT NOT NULL,
+    created_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS cache_semantico_embedding_hnsw_idx
+ON cache_semantico USING hnsw (question_embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64);
 
 CREATE TABLE IF NOT EXISTS leads (
     id                   SERIAL PRIMARY KEY,

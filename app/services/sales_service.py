@@ -3,16 +3,21 @@ Orquestador del asistente de atención al cliente / ventas ("empleado
 digital" comercial). Mismo patrón que rag_service.answer_with_tools(),
 pero con un system prompt de tono comercial y las herramientas de
 ventas (app/mcp/ventas_server.py) en vez de las de taller.
+LLM vía llm_service (proveedor conmutable: groq/bedrock).
 """
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.services import cache_service, embedding_service, vector_service, bedrock_service
+from app.core.observability import observe
+from app.core.guardrails import detect_prompt_injection
+from app.services import cache_service, embedding_service, vector_service, llm_service
 
 logger = get_logger(__name__)
 
 _PREVIEW_CHARS = 240
 
-_SALES_SYSTEM_PROMPT = (
+# Texto FALLBACK -- se usa solo si Langfuse esta deshabilitado o falla
+# la llamada al registro (ver _get_sales_system_prompt() mas abajo).
+_SALES_SYSTEM_PROMPT_FALLBACK = (
     "Eres el asistente virtual de atención al cliente de una empresa de "
     "motocicletas. Hablas en español, de forma cercana, clara y profesional, "
     "las 24 horas del día. Ayudas a los clientes a resolver dudas sobre "
@@ -29,6 +34,17 @@ _SALES_SYSTEM_PROMPT = (
 )
 
 
+def _get_sales_system_prompt() -> str:
+    """
+    Registro de prompts versionado (punto #10 del plan de mejora): trae
+    la version activa (etiqueta "production") del prompt
+    "ventas-system-prompt" desde Langfuse. Cae al texto hardcodeado si
+    Langfuse no esta disponible.
+    """
+    from app.core.observability import get_prompt_or_fallback
+    return get_prompt_or_fallback("ventas-system-prompt", _SALES_SYSTEM_PROMPT_FALLBACK)
+
+
 def _fuentes(chunks: list[dict]) -> list[dict]:
     return [
         {
@@ -41,43 +57,48 @@ def _fuentes(chunks: list[dict]) -> list[dict]:
     ]
 
 
+@observe()
 def answer_cliente(question: str, session_id: str | None = None) -> dict:
     from app.mcp.ventas_server import get_tools_schema, execute_tool
+
+    if detect_prompt_injection(question):
+        return {
+            "answer": "No puedo procesar esa solicitud. Si tienes una pregunta sobre nuestras motos, financiamiento o repuestos, con gusto te ayudo.",
+            "sources": [],
+            "from_cache": False,
+            "tools_used": [],
+            "blocked": True,
+        }
 
     cached = cache_service.get(question, "cliente")
     if cached:
         return {**cached, "from_cache": True}
 
     query_embedding = embedding_service.embed_query(question)
+
+    cached_semantico = cache_service.get_semantic(question, query_embedding, "cliente")
+    if cached_semantico:
+        return {**cached_semantico, "from_cache": True}
+
     chunks = vector_service.search_hybrid(query_embedding, question)
+    if not vector_service.chunks_son_relevantes(chunks):
+        logger.info("Corrective RAG: ningún chunk supera el umbral de relevancia, se trata como sin contexto")
+        chunks = []
     memory = cache_service.get_memory(session_id or "")
     tools = get_tools_schema()
 
-    response = bedrock_service.generate_with_tools_and_prompt(
-        question, chunks, tools, memory, system_prompt=_SALES_SYSTEM_PROMPT
+    response = llm_service.run_agentic(
+        question, chunks, tools, execute_tool, memory, system_prompt=_get_sales_system_prompt()
     )
-
-    tool_results: list[dict] = []
-    max_iteraciones = 4
-    while response.get("tool_calls") and max_iteraciones > 0:
-        max_iteraciones -= 1
-        for tool_call in response["tool_calls"]:
-            nombre_tool = tool_call["name"]
-            logger.info(f"Ejecutando herramienta MCP de ventas: {nombre_tool}")
-            result = execute_tool(tool_call["name"], tool_call["parameters"])
-            tool_results.append({"tool": tool_call["name"], "result": result})
-
-        response = bedrock_service.generate_with_tool_results_and_prompt(
-            question, chunks, tool_results, memory, system_prompt=_SALES_SYSTEM_PROMPT
-        )
 
     result = {
         "answer": response["text"],
         "sources": _fuentes(chunks),
         "from_cache": False,
-        "tools_used": [t["tool"] for t in tool_results],
+        "tools_used": response["tools_used"],
     }
 
     cache_service.set(question, result, "cliente")
+    cache_service.set_semantic(question, query_embedding, result, "cliente")
     cache_service.save_memory(session_id or "", question, result["answer"])
     return result

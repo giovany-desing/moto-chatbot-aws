@@ -8,7 +8,7 @@ al usuario final (el chunk original se sigue guardando intacto).
 """
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.services import bedrock_service
+from app.services import llm_service
 
 logger = get_logger(__name__)
 
@@ -35,7 +35,7 @@ def generate_chunk_context(document_text: str, chunk_text: str) -> str:
     prompt = _CONTEXT_PROMPT_TEMPLATE.format(document=documento_recortado, chunk=chunk_text)
 
     try:
-        contexto = bedrock_service.generate_simple(prompt)
+        contexto = llm_service.generate_simple(prompt)
         return contexto.strip()
     except Exception as exc:
         logger.warning(f"No se pudo generar contexto para el chunk, se indexa sin el: {exc}")

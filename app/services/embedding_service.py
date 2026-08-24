@@ -1,13 +1,20 @@
 """
-Servicio de embeddings con Amazon Bedrock Titan Text Embeddings V2.
+Servicio de embeddings.
 
-NOTA CRÍTICA: las cuentas AWS nuevas tienen cuota on-demand en 0 para
-modelos de embeddings de Bedrock. Si ves ThrottlingException/AccessDenied,
-contacta AWS Support para aumentar la cuota, o prueba el prefijo
-cross-region "us." delante del model_id.
+Proveedor conmutable vía settings.EMBEDDING_PROVIDER:
+- "local"   -> BGE-M3 (BAAI/bge-m3) vía sentence-transformers, corre en esta
+               misma máquina/proceso, sin costo por request.
+- "bedrock" -> Amazon Titan Text Embeddings V2 (código original conservado,
+               para casos atípicos que se decida volver a usar Bedrock).
+
+NOTA sobre Bedrock (heredada): las cuentas AWS nuevas tienen cuota on-demand
+en 0 para modelos de embeddings de Bedrock. Si ves ThrottlingException/
+AccessDenied, contacta AWS Support o prueba el prefijo cross-region "us."
+delante del model_id.
 """
 import json
 import time
+
 import boto3
 from botocore.exceptions import ClientError
 
@@ -16,13 +23,40 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_bedrock = boto3.client("bedrock-runtime", region_name=settings.BEDROCK_REGION)
-
 _MAX_RETRIES = 5
 _BASE_DELAY = 1.0
 
+_bedrock = boto3.client("bedrock-runtime", region_name=settings.BEDROCK_REGION)
 
-def _invoke_with_retry(body: dict) -> dict:
+# --- Modelo local (BGE-M3) — carga perezosa (singleton) ---------------------
+_local_model = None
+
+
+def _get_local_model():
+    global _local_model
+    if _local_model is None:
+        import torch
+        from sentence_transformers import SentenceTransformer
+
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        logger.info(f"Cargando modelo de embeddings local '{settings.LOCAL_EMBEDDING_MODEL}' en device={device}")
+        _local_model = SentenceTransformer(settings.LOCAL_EMBEDDING_MODEL, device=device)
+    return _local_model
+
+
+def _embed_local_batch(texts: list[str]) -> list[list[float]]:
+    model = _get_local_model()
+    vectors = model.encode(
+        texts,
+        normalize_embeddings=True,
+        batch_size=16,
+        show_progress_bar=False,
+    )
+    return vectors.tolist()
+
+
+# --- Bedrock (Titan V2) — conservado tal cual, para casos atípicos ----------
+def _bedrock_invoke_with_retry(body: dict) -> dict:
     last_exc: Exception | None = None
     for attempt in range(_MAX_RETRIES):
         try:
@@ -45,10 +79,15 @@ def _invoke_with_retry(body: dict) -> dict:
     raise last_exc  # type: ignore[misc]
 
 
+def _embed_bedrock_batch(texts: list[str]) -> list[list[float]]:
+    # Titan V2 no soporta batch nativo por request: se invoca secuencialmente.
+    return [_bedrock_invoke_with_retry({"inputText": t[:8000]})["embedding"] for t in texts]
+
+
+# --- Interfaz pública (sin cambios para quien la consume) -------------------
 def embed_text(text: str) -> list[float]:
     """Genera el embedding de un solo texto (usado en indexación)."""
-    result = _invoke_with_retry({"inputText": text[:8000]})
-    return result["embedding"]
+    return embed_batch([text])[0]
 
 
 def embed_query(question: str) -> list[float]:
@@ -57,12 +96,9 @@ def embed_query(question: str) -> list[float]:
 
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
-    """
-    Genera embeddings para una lista de textos.
-    Titan V2 no soporta batch nativo por request — se invoca secuencialmente
-    con reintentos individuales para tolerar throttling parcial.
-    """
-    embeddings = []
-    for text in texts:
-        embeddings.append(embed_text(text))
-    return embeddings
+    """Genera embeddings para una lista de textos, usando el proveedor configurado."""
+    if settings.EMBEDDING_PROVIDER == "local":
+        return _embed_local_batch(texts)
+    elif settings.EMBEDDING_PROVIDER == "bedrock":
+        return _embed_bedrock_batch(texts)
+    raise ValueError(f"EMBEDDING_PROVIDER desconocido: {settings.EMBEDDING_PROVIDER!r}")

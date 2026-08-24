@@ -15,6 +15,7 @@ un segundo pase de reranking real sobre los candidatos fusionados.
 """
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.observability import observe
 from app.services import rerank_service
 from app.services.db_service import db_cursor
 
@@ -38,29 +39,41 @@ def register_manual(filename: str) -> int:
         return cur.fetchone()[0]
 
 
-def save_chunks(manual_id: int, filename: str, chunks: list[dict]) -> int:
+def save_chunk_batch(manual_id: int, filename: str, chunks: list[dict]) -> int:
     """
-    chunks: [{"page": int, "text": str, "embedding": list[float]}, ...]
+    Inserta UN LOTE de chunks (no actualiza el estado de "manuales" --
+    ver finalize_manual). Permite guardado incremental: si el proceso
+    de indexacion falla a mitad de camino, los lotes ya insertados con
+    esta funcion no se pierden.
+    chunks: [{"page": int, "text": str, "embedding": list[float], "parent_text": str}, ...]
+    parent_text es opcional -- si no viene, se usa "text" como fallback
+    (compatibilidad con codigo que aun no lo genera).
     """
     with db_cursor() as (conn, cur):
         for chunk in chunks:
             cur.execute(
                 """
-                INSERT INTO chunks (manual_id, filename, page, text, embedding)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO chunks (manual_id, filename, page, text, parent_text, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                [manual_id, filename, chunk["page"], chunk["text"], chunk["embedding"]],
+                [manual_id, filename, chunk["page"], chunk["text"], chunk.get("parent_text", chunk["text"]), chunk["embedding"]],
             )
+    logger.info(f"Guardado lote de {len(chunks)} chunks para {filename}")
+    return len(chunks)
+
+
+def finalize_manual(manual_id: int, total_chunks: int, total_pages: int) -> None:
+    """Marca el manual como completamente indexado, con el conteo final real (llamar UNA vez, al terminar todos los lotes)."""
+    with db_cursor() as (conn, cur):
         cur.execute(
             """
             UPDATE manuales
             SET chunks = %s, pages = %s, indexed = TRUE, updated_at = NOW()
             WHERE id = %s
             """,
-            [len(chunks), max((c["page"] for c in chunks), default=0), manual_id],
+            [total_chunks, total_pages, manual_id],
         )
-    logger.info(f"Guardados {len(chunks)} chunks para {filename}")
-    return len(chunks)
+    logger.info(f"Manual id={manual_id} marcado como indexado ({total_chunks} chunks, {total_pages} páginas)")
 
 
 def search(query_embedding: list[float], filename: str | None = None, top_k: int | None = None) -> list[dict]:
@@ -72,7 +85,7 @@ def search(query_embedding: list[float], filename: str | None = None, top_k: int
         if filename:
             cur.execute(
                 """
-                SELECT id, filename, page, text, 1 - (embedding <=> %s::vector) AS relevance
+                SELECT id, filename, page, text, parent_text, 1 - (embedding <=> %s::vector) AS relevance
                 FROM chunks
                 WHERE filename = %s
                 ORDER BY embedding <=> %s::vector
@@ -83,7 +96,7 @@ def search(query_embedding: list[float], filename: str | None = None, top_k: int
         else:
             cur.execute(
                 """
-                SELECT id, filename, page, text, 1 - (embedding <=> %s::vector) AS relevance
+                SELECT id, filename, page, text, parent_text, 1 - (embedding <=> %s::vector) AS relevance
                 FROM chunks
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
@@ -93,7 +106,7 @@ def search(query_embedding: list[float], filename: str | None = None, top_k: int
         rows = cur.fetchall()
 
     return [
-        {"id": r[0], "filename": r[1], "page": r[2], "text": r[3], "relevance": round(float(r[4]), 4)}
+        {"id": r[0], "filename": r[1], "page": r[2], "text": r[3], "parent_text": r[4], "relevance": round(float(r[5]), 4)}
         for r in rows
     ]
 
@@ -106,7 +119,7 @@ def search_sparse(query_text: str, filename: str | None = None, top_k: int | Non
         if filename:
             cur.execute(
                 """
-                SELECT id, filename, page, text, ts_rank_cd(text_search, plainto_tsquery('spanish', %s)) AS relevance
+                SELECT id, filename, page, text, parent_text, ts_rank_cd(text_search, plainto_tsquery('spanish', %s)) AS relevance
                 FROM chunks
                 WHERE filename = %s AND text_search @@ plainto_tsquery('spanish', %s)
                 ORDER BY relevance DESC
@@ -117,7 +130,7 @@ def search_sparse(query_text: str, filename: str | None = None, top_k: int | Non
         else:
             cur.execute(
                 """
-                SELECT id, filename, page, text, ts_rank_cd(text_search, plainto_tsquery('spanish', %s)) AS relevance
+                SELECT id, filename, page, text, parent_text, ts_rank_cd(text_search, plainto_tsquery('spanish', %s)) AS relevance
                 FROM chunks
                 WHERE text_search @@ plainto_tsquery('spanish', %s)
                 ORDER BY relevance DESC
@@ -128,7 +141,7 @@ def search_sparse(query_text: str, filename: str | None = None, top_k: int | Non
         rows = cur.fetchall()
 
     return [
-        {"id": r[0], "filename": r[1], "page": r[2], "text": r[3], "relevance": round(float(r[4]), 4)}
+        {"id": r[0], "filename": r[1], "page": r[2], "text": r[3], "parent_text": r[4], "relevance": round(float(r[5]), 4)}
         for r in rows
     ]
 
@@ -158,6 +171,7 @@ def _reciprocal_rank_fusion(result_lists: list[list[dict]], top_k: int) -> list[
     return resultado_final
 
 
+@observe()
 def search_hybrid(query_embedding: list[float], query_text: str, filename: str | None = None, top_k: int | None = None) -> list[dict]:
     """
     Retrieval HIBRIDO completo: dense + sparse -> RRF -> reranking.
@@ -177,6 +191,21 @@ def search_hybrid(query_embedding: list[float], query_text: str, filename: str |
         return rerank_service.rerank(query_text, candidatos, top_k)
 
     return candidatos[:top_k]
+
+
+def chunks_son_relevantes(chunks: list[dict]) -> bool:
+    """
+    Corrective RAG (grading liviano, punto #9 del plan): usa el propio
+    score del reranker (ya calculado, sin llamada adicional a un LLM)
+    para decidir si el retrieval realmente trajo contexto util o no.
+    Si el mejor candidato no supera CRAG_RELEVANCE_THRESHOLD, se
+    considera que NO hay contexto relevante -- el llamador debe tratar
+    esto como "sin contexto" en vez de forzar una respuesta con chunks
+    debiles/irrelevantes. Calibrado con datos reales (ver config.py).
+    """
+    if not chunks:
+        return False
+    return chunks[0]["relevance"] >= settings.CRAG_RELEVANCE_THRESHOLD
 
 
 def list_manuales() -> list[dict]:
