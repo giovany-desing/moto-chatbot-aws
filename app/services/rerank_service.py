@@ -35,8 +35,11 @@ def _get_local_reranker():
         from sentence_transformers import CrossEncoder
 
         device = "mps" if torch.backends.mps.is_available() else "cpu"
-        logger.info(f"Cargando reranker local '{settings.LOCAL_RERANK_MODEL}' en device={device}")
-        _local_reranker = CrossEncoder(settings.LOCAL_RERANK_MODEL, device=device)
+        # Mismo motivo que embedding_service.py: fp16 en CPU para que
+        # ambos modelos locales quepan en el limite de 3008MB de Lambda.
+        model_kwargs = {"dtype": torch.float16} if device == "cpu" else {}
+        logger.info(f"Cargando reranker local '{settings.LOCAL_RERANK_MODEL}' en device={device}{' (fp16)' if model_kwargs else ''}")
+        _local_reranker = CrossEncoder(settings.LOCAL_RERANK_MODEL, device=device, model_kwargs=model_kwargs)
     return _local_reranker
 
 

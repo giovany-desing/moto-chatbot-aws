@@ -39,8 +39,16 @@ def _get_local_model():
         from sentence_transformers import SentenceTransformer
 
         device = "mps" if torch.backends.mps.is_available() else "cpu"
-        logger.info(f"Cargando modelo de embeddings local '{settings.LOCAL_EMBEDDING_MODEL}' en device={device}")
-        _local_model = SentenceTransformer(settings.LOCAL_EMBEDDING_MODEL, device=device)
+        # En CPU (Lambda) cargamos en fp16 -- reduce memoria de ~2.2GB a
+        # ~1.1GB por modelo. Necesario porque la cuenta de AWS tiene un
+        # tope de memoria de Lambda de 3008MB (cuota de cuenta, no el
+        # limite tecnico de la plataforma que es 10240MB), y los DOS
+        # modelos locales (embeddings + reranker) en fp32 no caben juntos.
+        # Perdida de precision verificada como insignificante: similitud
+        # coseno de 0.9999994 entre el mismo texto en fp32 vs fp16.
+        model_kwargs = {"dtype": torch.float16} if device == "cpu" else {}
+        logger.info(f"Cargando modelo de embeddings local '{settings.LOCAL_EMBEDDING_MODEL}' en device={device}{' (fp16)' if model_kwargs else ''}")
+        _local_model = SentenceTransformer(settings.LOCAL_EMBEDDING_MODEL, device=device, model_kwargs=model_kwargs)
     return _local_model
 
 
