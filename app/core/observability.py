@@ -40,3 +40,26 @@ else:
         return decorator
 
     logger.info("Langfuse deshabilitado (faltan API keys) -- el pipeline corre sin trazas")
+
+
+def get_prompt_or_fallback(name: str, fallback: str, label: str = "production") -> str:
+    """
+    Registro de prompts versionado (punto #10 del plan de mejora): trae
+    el prompt activo (label="production" por defecto) desde Langfuse
+    Cloud, permitiendo rollback o A/B testing SIN redeploy de codigo --
+    solo cambiando que version tiene la etiqueta "production" en el
+    dashboard de Langfuse.
+
+    No bloqueante: si Langfuse esta deshabilitado, o el prompt no
+    existe todavia, o falla la llamada por cualquier razon, cae al
+    texto hardcodeado que ya tenia el codigo (mismo principio de
+    degradacion segura que cache_service.py con Redis).
+    """
+    if langfuse_client is None:
+        return fallback
+    try:
+        prompt_obj = langfuse_client.get_prompt(name=name, label=label, fallback=fallback, cache_ttl_seconds=300)
+        return prompt_obj.prompt
+    except Exception as exc:
+        logger.warning(f"No se pudo obtener el prompt '{name}' de Langfuse, usando fallback local: {exc}")
+        return fallback

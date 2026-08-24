@@ -15,7 +15,9 @@ logger = get_logger(__name__)
 
 _PREVIEW_CHARS = 240
 
-_SALES_SYSTEM_PROMPT = (
+# Texto FALLBACK -- se usa solo si Langfuse esta deshabilitado o falla
+# la llamada al registro (ver _get_sales_system_prompt() mas abajo).
+_SALES_SYSTEM_PROMPT_FALLBACK = (
     "Eres el asistente virtual de atención al cliente de una empresa de "
     "motocicletas. Hablas en español, de forma cercana, clara y profesional, "
     "las 24 horas del día. Ayudas a los clientes a resolver dudas sobre "
@@ -30,6 +32,17 @@ _SALES_SYSTEM_PROMPT = (
     "contacto. No inventes precios, tasas ni disponibilidad — usa siempre "
     "las herramientas para consultar datos reales."
 )
+
+
+def _get_sales_system_prompt() -> str:
+    """
+    Registro de prompts versionado (punto #10 del plan de mejora): trae
+    la version activa (etiqueta "production") del prompt
+    "ventas-system-prompt" desde Langfuse. Cae al texto hardcodeado si
+    Langfuse no esta disponible.
+    """
+    from app.core.observability import get_prompt_or_fallback
+    return get_prompt_or_fallback("ventas-system-prompt", _SALES_SYSTEM_PROMPT_FALLBACK)
 
 
 def _fuentes(chunks: list[dict]) -> list[dict]:
@@ -75,7 +88,7 @@ def answer_cliente(question: str, session_id: str | None = None) -> dict:
     tools = get_tools_schema()
 
     response = llm_service.run_agentic(
-        question, chunks, tools, execute_tool, memory, system_prompt=_SALES_SYSTEM_PROMPT
+        question, chunks, tools, execute_tool, memory, system_prompt=_get_sales_system_prompt()
     )
 
     result = {

@@ -24,7 +24,10 @@ logger = get_logger(__name__)
 _MAX_RETRIES = 5
 _BASE_DELAY = 1.0
 
-_SYSTEM_PROMPT = (
+# Texto FALLBACK -- se usa solo si Langfuse esta deshabilitado, el
+# prompt no existe todavia en el registro, o la llamada falla por
+# cualquier razon (ver _get_default_system_prompt() mas abajo).
+_SYSTEM_PROMPT_FALLBACK = (
     "Eres un asistente técnico para mecánicos de motocicletas. Respondes en "
     "español, de forma precisa y concreta. Para preguntas TÉCNICAS (procedimientos, "
     "especificaciones, torques, mantenimiento), básate únicamente en el contexto "
@@ -36,6 +39,19 @@ _SYSTEM_PROMPT = (
     "que no tienes información suficiente. Si ni el contexto ni las "
     "herramientas responden la pregunta, dilo claramente en lugar de inventar datos."
 )
+
+def _get_default_system_prompt() -> str:
+    """
+    Registro de prompts versionado (punto #10 del plan de mejora, ver
+    app/core/observability.py): trae la version activa (etiqueta
+    "production") del prompt "taller-system-prompt" desde Langfuse,
+    permitiendo rollback/A-B testing sin redeploy de codigo. Cae al
+    texto hardcodeado (_SYSTEM_PROMPT_FALLBACK) si Langfuse no esta
+    disponible.
+    """
+    from app.core.observability import get_prompt_or_fallback
+    return get_prompt_or_fallback("taller-system-prompt", _SYSTEM_PROMPT_FALLBACK)
+
 
 _groq_client: Groq | None = None
 _bedrock = boto3.client("bedrock-runtime", region_name=settings.BEDROCK_REGION)
@@ -148,7 +164,7 @@ def _groq_invoke_with_retry(**kwargs):
 
 
 def _groq_generate(question: str, context: list[dict], memory: list[dict], system_prompt: str | None = None) -> str:
-    messages = [{"role": "system", "content": system_prompt or _SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt or _get_default_system_prompt()}]
     for turno in memory[-settings.MEMORY_MAX_MESSAGES:]:
         messages.append({"role": turno["role"], "content": turno["content"]})
     messages.append({"role": "user", "content": _build_user_prompt(question, context)})
@@ -186,7 +202,7 @@ def _groq_run_agentic(question, context, tools, execute_tool, memory=None, syste
     """
     openai_tools = _bedrock_tools_to_openai(tools)
 
-    messages = [{"role": "system", "content": system_prompt or _SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt or _get_default_system_prompt()}]
     for turno in (memory or [])[-settings.MEMORY_MAX_MESSAGES:]:
         messages.append({"role": turno["role"], "content": turno["content"]})
     messages.append({"role": "user", "content": _build_user_prompt(question, context)})
@@ -293,7 +309,7 @@ def _bedrock_invoke_with_retry(payload: dict) -> dict:
 def _bedrock_generate(question, context, memory, system_prompt=None) -> str:
     payload = {
         "schemaVersion": "messages-v1",
-        "system": [{"text": system_prompt or _SYSTEM_PROMPT}],
+        "system": [{"text": system_prompt or _get_default_system_prompt()}],
         "messages": _bedrock_build_messages(question, context, memory),
         "inferenceConfig": {"maxTokens": 1024, "temperature": 0.2, "topP": 0.9},
     }
@@ -325,7 +341,7 @@ def _bedrock_parse_tool_response(result: dict) -> dict:
 def _bedrock_run_agentic(question, context, tools, execute_tool, memory=None, system_prompt=None, max_iterations=4) -> dict:
     payload = {
         "schemaVersion": "messages-v1",
-        "system": [{"text": system_prompt or _SYSTEM_PROMPT}],
+        "system": [{"text": system_prompt or _get_default_system_prompt()}],
         "messages": _bedrock_build_messages(question, context, memory or []),
         "toolConfig": {"tools": tools},
         "inferenceConfig": {"maxTokens": 1024, "temperature": 0.2, "topP": 0.9},
@@ -347,7 +363,7 @@ def _bedrock_run_agentic(question, context, tools, execute_tool, memory=None, sy
 
         payload = {
             "schemaVersion": "messages-v1",
-            "system": [{"text": system_prompt or _SYSTEM_PROMPT}],
+            "system": [{"text": system_prompt or _get_default_system_prompt()}],
             "messages": _bedrock_build_messages(question, context, memory or [], tool_results),
             "inferenceConfig": {"maxTokens": 1024, "temperature": 0.2, "topP": 0.9},
         }
