@@ -31,6 +31,9 @@ _local_reranker = None
 def _get_local_reranker():
     global _local_reranker
     if _local_reranker is None:
+        from app.core.model_cache import ensure_writable_hf_cache
+        ensure_writable_hf_cache()  # debe ir ANTES del import de sentence_transformers
+
         import torch
         from sentence_transformers import CrossEncoder
 

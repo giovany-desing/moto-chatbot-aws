@@ -35,6 +35,9 @@ _local_model = None
 def _get_local_model():
     global _local_model
     if _local_model is None:
+        from app.core.model_cache import ensure_writable_hf_cache
+        ensure_writable_hf_cache()  # debe ir ANTES del import de sentence_transformers
+
         import torch
         from sentence_transformers import SentenceTransformer
 
