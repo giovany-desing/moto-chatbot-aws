@@ -26,23 +26,22 @@ _bedrock_agent = boto3.client("bedrock-agent-runtime", region_name=settings.BEDR
 _RERANK_MODEL_ARN_TEMPLATE = "arn:aws:bedrock:{region}::foundation-model/{model_id}"
 
 _local_reranker = None
+_RUTA_HORNEADA = "/var/task/models/bge-reranker-v2-m3"
 
 
 def _get_local_reranker():
     global _local_reranker
     if _local_reranker is None:
-        from app.core.model_cache import ensure_writable_hf_cache
-        ensure_writable_hf_cache()  # debe ir ANTES del import de sentence_transformers
-
+        import os
         import torch
         from sentence_transformers import CrossEncoder
 
+        modelo_a_cargar = _RUTA_HORNEADA if os.path.isdir(_RUTA_HORNEADA) else settings.LOCAL_RERANK_MODEL
+
         device = "mps" if torch.backends.mps.is_available() else "cpu"
-        # Mismo motivo que embedding_service.py: fp16 en CPU para que
-        # ambos modelos locales quepan en el limite de 3008MB de Lambda.
         model_kwargs = {"dtype": torch.float16} if device == "cpu" else {}
-        logger.info(f"Cargando reranker local '{settings.LOCAL_RERANK_MODEL}' en device={device}{' (fp16)' if model_kwargs else ''}")
-        _local_reranker = CrossEncoder(settings.LOCAL_RERANK_MODEL, device=device, model_kwargs=model_kwargs)
+        logger.info(f"Cargando reranker '{modelo_a_cargar}' en device={device}{' (fp16)' if model_kwargs else ''}")
+        _local_reranker = CrossEncoder(modelo_a_cargar, device=device, model_kwargs=model_kwargs)
     return _local_reranker
 
 

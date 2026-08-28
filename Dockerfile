@@ -11,25 +11,30 @@ WORKDIR /var/task
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt awslambdaric
 
-# Pre-descargar (hornear) los modelos de embeddings/reranking EN TIEMPO
-# DE BUILD -- sin esto, cada cold start de Lambda tendria que descargar
-# los modelos desde Hugging Face antes de poder responder la primera
-# peticion. Se excluyen imagenes/assets/onnx/*.pt (no se usan, solo
-# ocupan espacio) -- NO se puede filtrar por "solo safetensors": bge-m3
-# unicamente tiene pytorch_model.bin (sin variante safetensors) y
-# bge-reranker-v2-m3 es al reves (solo safetensors, sin .bin) --
-# confirmado consultando el listado real de archivos de cada repo.
-ENV HF_HOME=/var/task/.hf_cache
+# Pre-descargar y guardar los modelos de embeddings/reranking como
+# CARPETAS PLANAS (.save(), sin la estructura de cache de Hugging Face
+# con symlinks+locks) EN TIEMPO DE BUILD.
+#
+# HISTORIAL REAL: el primer intento horneaba la cache de HF tal cual
+# (snapshot_download) y copiaba esa cache a /tmp en runtime porque
+# /var/task es de solo lectura en Lambda -- pero la cache de HF tiene
+# miles de archivos pequeños/symlinks, y copiarla a /tmp tardaba mas de
+# 120 segundos en Lambda real (confirmado con CloudWatch logs). La
+# cache de HF tambien intenta escribir locks incluso con
+# HF_HUB_OFFLINE=1, colgandose contra un filesystem de solo lectura.
+#
+# Fix real: guardar cada modelo como carpeta plana autocontenida
+# (SentenceTransformer/CrossEncoder .save()) y cargar DIRECTAMENTE desde
+# esa ruta en runtime -- sin pasar por la logica de cache/resolucion de
+# Hugging Face en absoluto, sin intentos de escritura, sin copia a /tmp.
+# Verificado con una prueba real (chmod -R a-w, solo lectura de verdad)
+# que ambos modelos cargan y funcionan sin ningun intento de escritura.
 RUN python -c "\
-from huggingface_hub import snapshot_download; \
-excluir = ['imgs/*', 'assets/*', 'onnx/*', '*.pt', '*.jpg', '*.webp', '*.png', '.DS_Store']; \
-snapshot_download(repo_id='BAAI/bge-m3', ignore_patterns=excluir); \
-snapshot_download(repo_id='BAAI/bge-reranker-v2-m3', ignore_patterns=excluir)"
+from sentence_transformers import SentenceTransformer, CrossEncoder; \
+SentenceTransformer('BAAI/bge-m3', device='cpu').save('/var/task/models/bge-m3'); \
+CrossEncoder('BAAI/bge-reranker-v2-m3', device='cpu').save('/var/task/models/bge-reranker-v2-m3')" \
+    && rm -rf /root/.cache/huggingface
 
-# En runtime, NUNCA intentar red para cargar los modelos -- usar solo lo
-# horneado en la imagen. El filesystem de Lambda es de solo lectura
-# excepto /tmp, y esto tambien evita fallos si Hugging Face no responde
-# en ese momento.
 ENV HF_HUB_OFFLINE=1
 
 COPY app ./app

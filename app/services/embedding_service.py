@@ -32,14 +32,22 @@ _bedrock = boto3.client("bedrock-runtime", region_name=settings.BEDROCK_REGION)
 _local_model = None
 
 
+_RUTA_HORNEADA = "/var/task/models/bge-m3"
+
+
 def _get_local_model():
     global _local_model
     if _local_model is None:
-        from app.core.model_cache import ensure_writable_hf_cache
-        ensure_writable_hf_cache()  # debe ir ANTES del import de sentence_transformers
-
+        import os
         import torch
         from sentence_transformers import SentenceTransformer
+
+        # Si existe la carpeta horneada en el Dockerfile (Lambda), se
+        # carga DIRECTO de ahi -- sin pasar por la cache/resolucion de
+        # Hugging Face, sin intentos de escritura contra el filesystem
+        # de solo lectura de Lambda. En local (sin esa carpeta) cae al
+        # repo_id normal, que usa la cache de HF del sistema.
+        modelo_a_cargar = _RUTA_HORNEADA if os.path.isdir(_RUTA_HORNEADA) else settings.LOCAL_EMBEDDING_MODEL
 
         device = "mps" if torch.backends.mps.is_available() else "cpu"
         # En CPU (Lambda) cargamos en fp16 -- reduce memoria de ~2.2GB a
@@ -50,8 +58,8 @@ def _get_local_model():
         # Perdida de precision verificada como insignificante: similitud
         # coseno de 0.9999994 entre el mismo texto en fp32 vs fp16.
         model_kwargs = {"dtype": torch.float16} if device == "cpu" else {}
-        logger.info(f"Cargando modelo de embeddings local '{settings.LOCAL_EMBEDDING_MODEL}' en device={device}{' (fp16)' if model_kwargs else ''}")
-        _local_model = SentenceTransformer(settings.LOCAL_EMBEDDING_MODEL, device=device, model_kwargs=model_kwargs)
+        logger.info(f"Cargando modelo de embeddings '{modelo_a_cargar}' en device={device}{' (fp16)' if model_kwargs else ''}")
+        _local_model = SentenceTransformer(modelo_a_cargar, device=device, model_kwargs=model_kwargs)
     return _local_model
 
 
