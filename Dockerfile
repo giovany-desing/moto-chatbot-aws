@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /var/task
 
 COPY requirements.txt .
+RUN pip install --no-cache-dir torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt awslambdaric
 
 # Pre-descargar y guardar los modelos de embeddings/reranking como
